@@ -7,6 +7,7 @@ import { Button } from '../ui/Button';
 import { useSocketStore } from '../../store/socketStore';
 import { useRoomStore } from '../../store/roomStore';
 import { GameRoom } from '../../types/room';
+import { api } from '../../lib/api';
 import { useRouter } from 'next/navigation';
 import { Users, Bot, Lock, Sparkles, Clock, Zap, Shield, BookOpen } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -31,14 +32,13 @@ export function CreateRoomModal({ isOpen, onClose }: CreateRoomModalProps) {
   const { setCurrentRoom } = useRoomStore();
   const router = useRouter();
   
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!name.trim()) { setError('Please enter a room name'); return; }
-    if (!socket) { setError('Connection lost. Please reconnect.'); return; }
     
     setLoading(true);
     setError('');
     
-    socket.emit('create_room', {
+    const payload = {
       name: name.trim(),
       isPrivate,
       password: isPrivate ? password : undefined,
@@ -49,21 +49,44 @@ export function CreateRoomModal({ isOpen, onClose }: CreateRoomModalProps) {
       houseRules: {},
       allowBots,
       spectatorMode: false,
-    });
-    
-    socket.once('room_created', ({ room }: { room: GameRoom }) => {
+    };
+
+    try {
+      // 1. Primary: Create room via HTTP REST API
+      const room = await api.post<GameRoom>('/api/rooms', payload);
+      
+      if (socket && socket.connected) {
+        socket.emit('join_room', { code: room.code });
+      }
+
       setCurrentRoom(room);
       setLoading(false);
       onClose();
       router.push(`/room/${room.code}`);
-    });
-    
-    socket.once('error_message', ({ message }: { message: string }) => {
-      setError(message);
-      setLoading(false);
-    });
-    
-    setTimeout(() => { setLoading(false); }, 6000);
+    } catch (httpErr: unknown) {
+      // 2. Fallback: Try via Socket.IO if connected
+      if (socket && socket.connected) {
+        socket.emit('create_room', payload);
+        
+        socket.once('room_created', ({ room }: { room: GameRoom }) => {
+          setCurrentRoom(room);
+          setLoading(false);
+          onClose();
+          router.push(`/room/${room.code}`);
+        });
+        
+        socket.once('error_message', ({ message }: { message: string }) => {
+          setError(message);
+          setLoading(false);
+        });
+        
+        setTimeout(() => setLoading(false), 6000);
+      } else {
+        const message = httpErr instanceof Error ? httpErr.message : 'Error creating room';
+        setError(message);
+        setLoading(false);
+      }
+    }
   };
   
   const modes = [

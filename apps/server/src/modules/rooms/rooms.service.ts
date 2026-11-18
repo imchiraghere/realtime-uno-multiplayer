@@ -4,16 +4,16 @@ import { generateRoomCode } from '../../utils/roomCode';
 
 export class RoomsService {
   async createRoom(hostId: string, config: {
-    name: string;
-    isPrivate: boolean;
+    name?: string;
+    isPrivate?: boolean;
     password?: string;
-    maxPlayers: number;
-    gameMode: string;
-    turnTimerSeconds: number;
-    scoreLimit: number;
-    houseRules: Record<string, unknown>;
-    allowBots: boolean;
-    spectatorMode: boolean;
+    maxPlayers?: number;
+    gameMode?: string;
+    turnTimerSeconds?: number;
+    scoreLimit?: number;
+    houseRules?: Record<string, unknown>;
+    allowBots?: boolean;
+    spectatorMode?: boolean;
   }) {
     let code = generateRoomCode();
     // Ensure unique code
@@ -26,17 +26,17 @@ export class RoomsService {
     const room = await prisma.gameRoom.create({
       data: {
         code,
-        name: config.name,
+        name: (config.name && config.name.trim()) || `Room ${code}`,
         hostId,
-        isPrivate: config.isPrivate,
+        isPrivate: Boolean(config.isPrivate),
         password: passwordHash,
-        maxPlayers: config.maxPlayers,
-        gameMode: config.gameMode as 'CLASSIC' | 'HOUSE_RULES' | 'QUICK_MATCH',
-        turnTimerSeconds: config.turnTimerSeconds,
-        scoreLimit: config.scoreLimit,
-        houseRules: config.houseRules as any,
-        allowBots: config.allowBots,
-        spectatorMode: config.spectatorMode,
+        maxPlayers: Math.min(Math.max(Number(config.maxPlayers) || 4, 2), 10),
+        gameMode: (config.gameMode as 'CLASSIC' | 'HOUSE_RULES' | 'QUICK_MATCH') || 'CLASSIC',
+        turnTimerSeconds: Number(config.turnTimerSeconds) || 30,
+        scoreLimit: Number(config.scoreLimit) || 500,
+        houseRules: (config.houseRules as any) || {},
+        allowBots: config.allowBots !== undefined ? Boolean(config.allowBots) : true,
+        spectatorMode: Boolean(config.spectatorMode),
         players: {
           create: {
             userId: hostId,
@@ -149,7 +149,7 @@ export class RoomsService {
   }
   
   async getPublicRooms() {
-    return prisma.gameRoom.findMany({
+    let rooms = await prisma.gameRoom.findMany({
       where: { status: 'WAITING', isPrivate: false },
       include: {
         players: { include: { user: true } },
@@ -157,6 +157,27 @@ export class RoomsService {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+
+    if (rooms.length === 0) {
+      try {
+        const { seedTestRooms } = await import('../../config/autoInitDatabase');
+        const seeded = await seedTestRooms();
+        if (seeded > 0) {
+          rooms = await prisma.gameRoom.findMany({
+            where: { status: 'WAITING', isPrivate: false },
+            include: {
+              players: { include: { user: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return rooms;
   }
   
   async startGame(roomId: string, hostId: string) {

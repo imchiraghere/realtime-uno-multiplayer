@@ -493,7 +493,58 @@ export async function seedTestPlayers(): Promise<number> {
     logger.warn('Achievement init note during seed', err);
   }
 
+  // Seed sample public rooms if none exist
+  try {
+    await seedTestRooms();
+  } catch (err) {
+    logger.warn('Room seed note during seed', err);
+  }
+
   return seededCount;
+}
+
+export async function seedTestRooms(): Promise<number> {
+  try {
+    const existingCount = await prisma.gameRoom.count({
+      where: { status: 'WAITING', isPrivate: false },
+    });
+    if (existingCount > 0) return 0;
+
+    const alice = await prisma.user.findFirst({ where: { email: 'player1@uno.com' } });
+    if (!alice) return 0;
+
+    const bob = await prisma.user.findFirst({ where: { email: 'player2@uno.com' } });
+
+    await prisma.gameRoom.upsert({
+      where: { code: 'UNOPRO' },
+      update: {},
+      create: {
+        code: 'UNOPRO',
+        name: 'Uno Champions 🏆',
+        hostId: alice.id,
+        isPrivate: false,
+        maxPlayers: 4,
+        gameMode: 'CLASSIC',
+        turnTimerSeconds: 30,
+        scoreLimit: 500,
+        houseRules: {},
+        allowBots: true,
+        spectatorMode: true,
+        players: {
+          create: [
+            { userId: alice.id, seat: 0, isReady: true },
+            ...(bob ? [{ userId: bob.id, seat: 1, isReady: false }] : []),
+          ],
+        },
+      },
+    });
+
+    logger.info('✅ Seeded sample public room "UNOPRO"');
+    return 1;
+  } catch (err) {
+    logger.warn('Sample room seed notice:', err);
+    return 0;
+  }
 }
 
 let initPromise: Promise<{ initialized: boolean; tablesCreated: boolean; seededCount: number }> | null = null;
@@ -540,6 +591,8 @@ export async function ensureDatabaseInitialized(): Promise<{
           logger.info('🌱 Database is empty. Seeding test players...');
           seededCount = await seedTestPlayers();
           logger.info(`✅ Seeded ${seededCount} test players successfully!`);
+        } else {
+          await seedTestRooms();
         }
       }
 

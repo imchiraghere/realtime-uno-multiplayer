@@ -7,6 +7,7 @@ import { Button } from '../ui/Button';
 import { useSocketStore } from '../../store/socketStore';
 import { useRoomStore } from '../../store/roomStore';
 import { GameRoom } from '../../types/room';
+import { api } from '../../lib/api';
 import { useRouter } from 'next/navigation';
 import { Hash, Lock, Clipboard, ArrowRight } from 'lucide-react';
 
@@ -31,31 +32,54 @@ export function JoinRoomModal({ isOpen, onClose, initialCode = '' }: JoinRoomMod
   const { setCurrentRoom } = useRoomStore();
   const router = useRouter();
   
-  const handleJoin = () => {
+  const handleJoin = async () => {
     const cleanCode = code.trim().toUpperCase();
     if (!cleanCode) { setError('Please enter a 6-character room code'); return; }
     if (cleanCode.length < 4) { setError('Room code is too short'); return; }
-    if (!socket) { setError('Connection lost. Please reconnect.'); return; }
     
     setLoading(true);
     setError('');
-    
-    socket.emit('join_room', { code: cleanCode, password: password || undefined });
-    
-    socket.once('room_joined', ({ room }: { room: GameRoom }) => {
+
+    try {
+      // 1. Primary: Join room via HTTP REST API
+      const room = await api.post<GameRoom>(`/api/rooms/${cleanCode}/join`, {
+        password: password || undefined,
+      });
+
+      if (socket && socket.connected) {
+        socket.emit('join_room', { code: cleanCode, password: password || undefined });
+      }
+
       setCurrentRoom(room);
       setLoading(false);
       onClose();
       router.push(`/room/${room.code}`);
-    });
-    
-    socket.once('error_message', ({ message }: { message: string }) => {
-      setError(message);
-      setLoading(false);
-      if (message.toLowerCase().includes('password')) setNeedsPassword(true);
-    });
-    
-    setTimeout(() => setLoading(false), 6000);
+    } catch (httpErr: unknown) {
+      // 2. Fallback: Try via Socket.IO if connected
+      if (socket && socket.connected) {
+        socket.emit('join_room', { code: cleanCode, password: password || undefined });
+        
+        socket.once('room_joined', ({ room }: { room: GameRoom }) => {
+          setCurrentRoom(room);
+          setLoading(false);
+          onClose();
+          router.push(`/room/${room.code}`);
+        });
+        
+        socket.once('error_message', ({ message }: { message: string }) => {
+          setError(message);
+          setLoading(false);
+          if (message.toLowerCase().includes('password')) setNeedsPassword(true);
+        });
+        
+        setTimeout(() => setLoading(false), 6000);
+      } else {
+        const message = httpErr instanceof Error ? httpErr.message : 'Error joining room';
+        setError(message);
+        setLoading(false);
+        if (message.toLowerCase().includes('password')) setNeedsPassword(true);
+      }
+    }
   };
 
   const handlePaste = async () => {
