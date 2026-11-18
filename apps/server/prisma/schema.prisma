@@ -1,0 +1,272 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String?  @unique
+  username     String   @unique
+  passwordHash String?
+  googleId     String?  @unique
+  isGuest      Boolean  @default(false)
+  isAdmin      Boolean  @default(false)
+  isBanned     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile      UserProfile?
+  stats        UserStats?
+  sentFriendRequests     FriendRequest[] @relation("SentRequests")
+  receivedFriendRequests FriendRequest[] @relation("ReceivedRequests")
+  friendsAsUser    Friend[] @relation("FriendUser")
+  friendsAsFriend  Friend[] @relation("FriendFriend")
+  hostedRooms  GameRoom[]
+  roomPlayers  GameRoomPlayer[]
+  gamePlayers  GamePlayer[]
+  matchHistories MatchHistory[]
+  achievements  UserAchievement[]
+  chatMessages  ChatMessage[]
+  sentReports  PlayerReport[] @relation("Reporter")
+  receivedReports PlayerReport[] @relation("Reported")
+  blocks       PlayerBlock[] @relation("Blocker")
+  blocked      PlayerBlock[] @relation("Blocked")
+  leaderboardSnapshots LeaderboardSnapshot[]
+}
+
+model UserProfile {
+  id        String  @id @default(cuid())
+  userId    String  @unique
+  avatarUrl String?
+  bio       String?
+  country   String?
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserStats {
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  totalGames    Int     @default(0)
+  wins          Int     @default(0)
+  losses        Int     @default(0)
+  winRate       Float   @default(0)
+  highestScore  Int     @default(0)
+  currentRating Int     @default(1000)
+  level         Int     @default(1)
+  xp            Int     @default(0)
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Friend {
+  id        String   @id @default(cuid())
+  userId    String
+  friendId  String
+  createdAt DateTime @default(now())
+  user      User     @relation("FriendUser", fields: [userId], references: [id], onDelete: Cascade)
+  friend    User     @relation("FriendFriend", fields: [friendId], references: [id], onDelete: Cascade)
+  @@unique([userId, friendId])
+}
+
+model FriendRequest {
+  id         String              @id @default(cuid())
+  senderId   String
+  receiverId String
+  status     FriendRequestStatus @default(PENDING)
+  createdAt  DateTime            @default(now())
+  sender     User                @relation("SentRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User                @relation("ReceivedRequests", fields: [receiverId], references: [id], onDelete: Cascade)
+  @@unique([senderId, receiverId])
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model GameRoom {
+  id               String         @id @default(cuid())
+  code             String         @unique
+  name             String
+  hostId           String
+  status           RoomStatus     @default(WAITING)
+  isPrivate        Boolean        @default(false)
+  password         String?
+  maxPlayers       Int            @default(4)
+  gameMode         GameMode       @default(CLASSIC)
+  turnTimerSeconds Int            @default(30)
+  scoreLimit       Int            @default(500)
+  houseRules       Json           @default("{}")
+  allowBots        Boolean        @default(false)
+  spectatorMode    Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  host             User           @relation(fields: [hostId], references: [id])
+  players          GameRoomPlayer[]
+  sessions         GameSession[]
+  chatMessages     ChatMessage[]
+}
+
+enum RoomStatus {
+  WAITING
+  PLAYING
+  FINISHED
+}
+
+enum GameMode {
+  CLASSIC
+  HOUSE_RULES
+  QUICK_MATCH
+}
+
+model GameRoomPlayer {
+  id            String   @id @default(cuid())
+  roomId        String
+  userId        String
+  seat          Int
+  isReady       Boolean  @default(false)
+  isBot         Boolean  @default(false)
+  botDifficulty String?
+  connectedAt   DateTime @default(now())
+  room          GameRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id])
+  @@unique([roomId, userId])
+  @@unique([roomId, seat])
+}
+
+model GameSession {
+  id                 String        @id @default(cuid())
+  roomId             String
+  status             SessionStatus @default(IN_PROGRESS)
+  direction          Int           @default(1)
+  currentPlayerIndex Int           @default(0)
+  currentColor       String        @default("red")
+  drawCount          Int           @default(0)
+  turnNumber         Int           @default(0)
+  startedAt          DateTime      @default(now())
+  finishedAt         DateTime?
+  winnerId           String?
+  room               GameRoom      @relation(fields: [roomId], references: [id])
+  players            GamePlayer[]
+  events             GameEvent[]
+  matchHistories     MatchHistory[]
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  FINISHED
+}
+
+model GamePlayer {
+  id           String      @id @default(cuid())
+  sessionId    String
+  userId       String
+  seat         Int
+  cardCount    Int         @default(7)
+  hasCalledUno Boolean     @default(false)
+  isConnected  Boolean     @default(true)
+  score        Int         @default(0)
+  finalPosition Int?
+  session      GameSession @relation(fields: [sessionId], references: [id])
+  user         User        @relation(fields: [userId], references: [id])
+}
+
+model GameEvent {
+  id        String      @id @default(cuid())
+  sessionId String
+  eventType String
+  data      Json
+  createdAt DateTime    @default(now())
+  session   GameSession @relation(fields: [sessionId], references: [id])
+}
+
+model MatchHistory {
+  id        String        @id @default(cuid())
+  userId    String
+  sessionId String
+  result    MatchResult
+  score     Int           @default(0)
+  duration  Int           @default(0)
+  createdAt DateTime      @default(now())
+  user      User          @relation(fields: [userId], references: [id])
+  session   GameSession   @relation(fields: [sessionId], references: [id])
+}
+
+enum MatchResult {
+  WIN
+  LOSS
+  DRAW
+}
+
+model Achievement {
+  id          String            @id @default(cuid())
+  key         String            @unique
+  name        String
+  description String
+  iconUrl     String?
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  achievementId String
+  unlockedAt    DateTime    @default(now())
+  user          User        @relation(fields: [userId], references: [id])
+  achievement   Achievement @relation(fields: [achievementId], references: [id])
+  @@unique([userId, achievementId])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  message   String
+  createdAt DateTime @default(now())
+  room      GameRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model PlayerReport {
+  id         String       @id @default(cuid())
+  reporterId String
+  reportedId String
+  reason     String
+  details    String?
+  status     ReportStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+  reporter   User         @relation("Reporter", fields: [reporterId], references: [id])
+  reported   User         @relation("Reported", fields: [reportedId], references: [id])
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
+model PlayerBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id])
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id])
+  @@unique([blockerId, blockedId])
+}
+
+model LeaderboardSnapshot {
+  id        String   @id @default(cuid())
+  userId    String
+  rank      Int
+  rating    Int
+  wins      Int
+  week      String?
+  month     String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
