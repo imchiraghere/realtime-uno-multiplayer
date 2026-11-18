@@ -343,6 +343,49 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 `;
 
+function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let inDollarQuote = false;
+
+  const lines = sql.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('--')) continue;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+
+      if (char === '$' && nextChar === '$') {
+        inDollarQuote = !inDollarQuote;
+        current += '$$';
+        i++;
+        continue;
+      }
+
+      if (char === ';' && !inDollarQuote) {
+        const stmt = current.trim();
+        if (stmt.length > 0) {
+          statements.push(stmt);
+        }
+        current = '';
+        continue;
+      }
+
+      current += char;
+    }
+    current += '\n';
+  }
+
+  const remainder = current.trim();
+  if (remainder.length > 0) {
+    statements.push(remainder);
+  }
+
+  return statements;
+}
+
 export async function seedTestPlayers(): Promise<number> {
   const defaultPassword = await hashPassword('password123');
   const adminPassword = await hashPassword('admin123');
@@ -480,7 +523,10 @@ export async function ensureDatabaseInitialized(): Promise<{
 
       if (!userTableExists) {
         logger.info('📦 Table "User" not found. Auto-creating database schema...');
-        await prisma.$executeRawUnsafe(SCHEMA_DDL);
+        const statements = splitSqlStatements(SCHEMA_DDL);
+        for (const stmt of statements) {
+          await prisma.$executeRawUnsafe(stmt);
+        }
         logger.info('✅ Database schema and tables created successfully!');
         tablesCreated = true;
 
@@ -508,3 +554,4 @@ export async function ensureDatabaseInitialized(): Promise<{
 
   return initPromise;
 }
+
