@@ -351,6 +351,9 @@ export function renderLandingPage(config: {
           <a href="${config.clientUrl}" class="btn btn-primary" target="_blank" rel="noreferrer">
             <span>Play Game</span> &rarr;
           </a>
+          <a href="/api/db/init" class="btn btn-secondary" target="_blank" title="Verify or create tables and seed test accounts">
+            <span>⚡ Init Database</span>
+          </a>
           <a href="/health" class="btn btn-secondary" target="_blank">
             <span>View /health JSON</span>
           </a>
@@ -405,6 +408,14 @@ export function renderLandingPage(config: {
             <span class="endpoint-path">/health</span>
           </div>
           <span class="endpoint-desc">System health, DB &amp; Redis ping diagnostics</span>
+        </div>
+
+        <div class="endpoint-item">
+          <div class="endpoint-left">
+            <span class="method method-get">GET</span>
+            <span class="endpoint-path">/api/db/init</span>
+          </div>
+          <span class="endpoint-desc">Auto-create PostgreSQL tables &amp; seed test players</span>
         </div>
 
         <div class="endpoint-item">

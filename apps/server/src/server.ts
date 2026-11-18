@@ -24,6 +24,7 @@ import { achievementsService } from './modules/achievements/achievements.service
 import { prisma } from './config/database';
 import { redis } from './config/redis';
 import { renderLandingPage } from './views/landingPage';
+import { ensureDatabaseInitialized } from './config/autoInitDatabase';
 
 const app = express();
 const httpServer = createServer(app);
@@ -69,6 +70,37 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 app.use('/api/', limiter);
+
+// Auto-ensure database schema & test records exist before handling any API request
+app.use('/api', async (_req, _res, next) => {
+  try {
+    await ensureDatabaseInitialized();
+  } catch (err) {
+    logger.warn('Auto DB initialization deferred or error', err);
+  }
+  next();
+});
+
+// Explicit Database Init Endpoint
+app.all(['/api/db/init', '/api/init-db'], async (_req, res) => {
+  try {
+    const result = await ensureDatabaseInitialized();
+    res.json({
+      success: true,
+      message: 'Database schema verified and test records initialized.',
+      ...result,
+      testAccounts: [
+        { email: 'player1@uno.com', username: 'Alice', password: 'password123' },
+        { email: 'player2@uno.com', username: 'Bob', password: 'password123' },
+        { email: 'player3@uno.com', username: 'Charlie', password: 'password123' },
+        { email: 'admin@uno.com', username: 'Admin', password: 'admin123' },
+      ],
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Database initialization error';
+    res.status(500).json({ success: false, error: message });
+  }
+});
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -120,8 +152,8 @@ app.use(errorHandler);
 // Initialize sockets
 initializeSockets(io);
 
-// Initialize achievements
-achievementsService.initAchievements().catch(err => logger.error('Achievement init error', err));
+// Initialize database schema, achievements, and test records
+ensureDatabaseInitialized().catch(err => logger.warn('Startup DB auto-init notice:', err));
 
 httpServer.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
