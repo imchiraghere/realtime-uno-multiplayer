@@ -3,8 +3,16 @@ import { config } from './index';
 import { logger } from '../utils/logger';
 
 export const redis = new Redis(config.redisUrl, {
-  retryStrategy: (times) => Math.min(times * 50, 2000),
-  maxRetriesPerRequest: 3,
+  retryStrategy: (times) => {
+    if (times > 3) {
+      logger.warn('Redis retry limit reached, running in standalone mode');
+      return null;
+    }
+    return Math.min(times * 100, 1000);
+  },
+  maxRetriesPerRequest: 1,
+  connectTimeout: 3000,
+  enableOfflineQueue: false,
 });
 
 redis.on('connect', () => logger.info('Redis connected'));

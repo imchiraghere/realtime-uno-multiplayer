@@ -136,9 +136,11 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
   }
 });
 
-httpServer.listen(config.port, () => {
-  logger.info(`🚀 Server running on port ${config.port} in ${config.nodeEnv} mode`);
-});
+if (!process.env.VERCEL) {
+  httpServer.listen(config.port, () => {
+    logger.info(`🚀 Server running on port ${config.port} in ${config.nodeEnv} mode`);
+  });
+}
 
 export { app, httpServer, io };
-export default httpServer;
+export default app;
