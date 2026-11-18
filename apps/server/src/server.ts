@@ -23,6 +23,7 @@ import { initializeSockets } from './sockets';
 import { achievementsService } from './modules/achievements/achievements.service';
 import { prisma } from './config/database';
 import { redis } from './config/redis';
+import { renderLandingPage } from './views/landingPage';
 
 const app = express();
 const httpServer = createServer(app);
@@ -76,6 +77,11 @@ app.use('/api/rooms', roomsRoutes);
 app.use('/api/friends', friendsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+
+// Root Landing Page
+app.get('/', (_req, res) => {
+  res.type('html').send(renderLandingPage(config));
+});
 
 // Health check
 app.get(['/health', '/api/health'], async (_req, res) => {
