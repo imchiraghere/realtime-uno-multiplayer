@@ -21,6 +21,8 @@ import leaderboardRoutes from './modules/leaderboard/leaderboard.routes';
 
 import { initializeSockets } from './sockets';
 import { achievementsService } from './modules/achievements/achievements.service';
+import { prisma } from './config/database';
+import { redis } from './config/redis';
 
 const app = express();
 const httpServer = createServer(app);
@@ -76,8 +78,35 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 
 // Health check
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get(['/health', '/api/health'], async (_req, res) => {
+  let dbStatus = 'disconnected';
+  let redisStatus = 'disconnected';
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbStatus = 'connected';
+  } catch (err) {
+    dbStatus = 'disconnected';
+  }
+
+  try {
+    const pingResult = await redis.ping();
+    redisStatus = pingResult === 'PONG' ? 'connected' : 'degraded';
+  } catch (err) {
+    redisStatus = 'disconnected';
+  }
+
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime()),
+    environment: config.nodeEnv,
+    services: {
+      server: 'running',
+      database: dbStatus,
+      redis: redisStatus,
+    },
+  });
 });
 
 app.use(errorHandler);
@@ -106,3 +135,4 @@ httpServer.listen(config.port, () => {
 });
 
 export { app, httpServer, io };
+export default httpServer;

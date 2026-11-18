@@ -3,7 +3,7 @@
 import { useAuthStore } from '../../store/authStore';
 import { useRouter, usePathname } from 'next/navigation';
 import { Button } from '../ui/Button';
-import { User, Trophy, LogOut, Sparkles } from 'lucide-react';
+import { User, Trophy, LogOut, Sparkles, Activity } from 'lucide-react';
 import Link from 'next/link';
 import { clsx } from 'clsx';
 
@@ -67,6 +67,18 @@ export function Navbar() {
           >
             <Sparkles className="w-3.5 h-3.5 text-purple-400" />
             Card Deck
+          </Link>
+          <Link
+            href="/status"
+            className={clsx(
+              'px-4 py-1.5 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5',
+              pathname === '/status'
+                ? 'bg-white/15 text-white shadow-sm'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            )}
+          >
+            <Activity className="w-3.5 h-3.5 text-emerald-400" />
+            Status
           </Link>
         </div>
         
