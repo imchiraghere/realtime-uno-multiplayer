@@ -4,7 +4,10 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, MessageCircle, X } from 'lucide-react';
 import { useSocketStore } from '../../store/socketStore';
+import { useAuthStore } from '../../store/authStore';
 import { useSounds } from '../../hooks/useSounds';
+import { api } from '../../lib/api';
+import { subscribeToGameSSE } from '../../lib/sse';
 import { clsx } from 'clsx';
 
 interface ChatMessage {
@@ -30,25 +33,55 @@ export function GameChat({ roomId, currentUserId, className }: GameChatProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const { socket } = useSocketStore();
+  const { token } = useAuthStore();
   const { play } = useSounds();
   const bottomRef = useRef<HTMLDivElement>(null);
   
+  // Load initial messages
+  useEffect(() => {
+    if (!roomId) return;
+    api.get<{ success: boolean; data: ChatMessage[] }>(`/api/game/${roomId}/chat`)
+      .then((res) => {
+        if (res?.data && Array.isArray(res.data)) {
+          setMessages(res.data);
+        }
+      })
+      .catch(() => {});
+  }, [roomId]);
+
+  // Handler for adding message without duplicates
+  const handleIncomingMessage = (msg: ChatMessage) => {
+    setMessages(prev => {
+      if (prev.some(m => m.id === msg.id)) return prev;
+      return [...prev.slice(-99), msg];
+    });
+    if (!isOpen) {
+      setUnread(u => u + 1);
+      play('click');
+    }
+  };
+
+  // Socket.IO Chat Listener
   useEffect(() => {
     if (!socket) return;
-    
-    const onChatMessage = (msg: ChatMessage) => {
-      setMessages(prev => [...prev.slice(-99), msg]);
-      if (!isOpen) {
-        setUnread(u => u + 1);
-        play('click');
-      }
-    };
-
-    socket.on('chat_message', onChatMessage);
+    socket.on('chat_message', handleIncomingMessage);
     return () => {
-      socket.off('chat_message', onChatMessage);
+      socket.off('chat_message', handleIncomingMessage);
     };
   }, [socket, isOpen, play]);
+
+  // Real-Time SSE Chat Listener
+  useEffect(() => {
+    if (!roomId || !token) return;
+    const unsubscribe = subscribeToGameSSE(roomId, token, {
+      onChatMessage: (msg) => {
+        handleIncomingMessage(msg);
+      },
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [roomId, token, isOpen, play]);
   
   useEffect(() => {
     if (isOpen) {
@@ -59,9 +92,19 @@ export function GameChat({ roomId, currentUserId, className }: GameChatProps) {
   
   const sendMessage = (textToSend?: string) => {
     const text = textToSend || input;
-    if (!text.trim() || !socket) return;
+    if (!text.trim()) return;
     play('click');
-    socket.emit('send_chat_message', { roomId, message: text.trim() });
+    
+    if (socket && socket.connected) {
+      socket.emit('send_chat_message', { roomId, message: text.trim() });
+    } else {
+      api.post<{ success: boolean; data: ChatMessage }>(`/api/game/${roomId}/chat`, {
+        message: text.trim(),
+      }).then((res) => {
+        if (res?.data) handleIncomingMessage(res.data);
+      }).catch(() => {});
+    }
+
     if (!textToSend) setInput('');
   };
   

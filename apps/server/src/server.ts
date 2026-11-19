@@ -57,7 +57,14 @@ const io = new Server(httpServer, {
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-app.use(compression() as any);
+app.use(compression({
+  filter: (req, res) => {
+    if (req.headers.accept?.includes('text/event-stream')) {
+      return false;
+    }
+    return compression.filter(req, res);
+  },
+}) as any);
 
 // Handle Socket.io polling requests directly through Express (for serverless environments & proxies)
 app.all('/socket.io*', (req, res) => {

@@ -9,7 +9,9 @@ import { useSocket } from '../../../hooks/useSocket';
 import { useAuth } from '../../../hooks/useAuth';
 import { useSocketStore } from '../../../store/socketStore';
 import { useRoomStore } from '../../../store/roomStore';
+import { useAuthStore } from '../../../store/authStore';
 import { api } from '../../../lib/api';
+import { subscribeToRoomSSE } from '../../../lib/sse';
 import { GameRoom } from '../../../types/room';
 import { useSounds } from '../../../hooks/useSounds';
 import {
@@ -38,6 +40,7 @@ export default function WaitingRoomPage() {
   const code = (params.code as string)?.toUpperCase();
   
   const { user, isAuthenticated } = useAuth();
+  const { token } = useAuthStore();
   const { socket } = useSocketStore();
   const { currentRoom, setCurrentRoom } = useRoomStore();
   const [copied, setCopied] = useState(false);
@@ -50,6 +53,33 @@ export default function WaitingRoomPage() {
       router.push('/login');
     }
   }, [isAuthenticated, user, router]);
+
+  // Real-Time Server-Sent Events (SSE) Stream
+  useEffect(() => {
+    if (!code || !token) return;
+
+    const unsubscribe = subscribeToRoomSSE(code, token, {
+      onRoomUpdated: ({ room }) => {
+        setCurrentRoom(room);
+        setError('');
+      },
+      onPlayerJoined: ({ room }) => {
+        setCurrentRoom(room);
+      },
+      onPlayerLeft: ({ room }) => {
+        if (!room) router.push('/lobby');
+        else setCurrentRoom(room);
+      },
+      onGameStarted: ({ roomId }) => {
+        playTurnStart();
+        router.push(`/game/${roomId}`);
+      },
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [code, token, router, setCurrentRoom, playTurnStart]);
   
   useEffect(() => {
     if (!socket || !code) return;

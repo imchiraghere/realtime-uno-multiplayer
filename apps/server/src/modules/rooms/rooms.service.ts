@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import { prisma } from '../../config/database';
 import { hashPassword, verifyPassword } from '../../utils/password';
 import { generateRoomCode } from '../../utils/roomCode';
+import { sseManager } from '../../utils/sseManager';
 
 export class RoomsService {
   private io: Server | null = null;
@@ -14,6 +15,7 @@ export class RoomsService {
     if (this.io) {
       this.io.to(roomId).emit('room_updated', { room });
     }
+    sseManager.broadcast(roomId, 'room_updated', { room });
   }
 
   notifyPlayerJoined(roomId: string, room: unknown): void {
@@ -21,6 +23,8 @@ export class RoomsService {
       this.io.to(roomId).emit('player_joined', { room });
       this.io.to(roomId).emit('room_updated', { room });
     }
+    sseManager.broadcast(roomId, 'player_joined', { room });
+    sseManager.broadcast(roomId, 'room_updated', { room });
   }
 
   notifyPlayerLeft(roomId: string, userId: string, room: unknown | null): void {
@@ -32,12 +36,19 @@ export class RoomsService {
         this.io.to(roomId).emit('room_closed', {});
       }
     }
+    if (room) {
+      sseManager.broadcast(roomId, 'player_left', { userId, room });
+      sseManager.broadcast(roomId, 'room_updated', { room });
+    } else {
+      sseManager.broadcast(roomId, 'room_closed', {});
+    }
   }
 
   notifyGameStarted(roomId: string, sessionId: string): void {
     if (this.io) {
       this.io.to(roomId).emit('game_started', { sessionId, roomId });
     }
+    sseManager.broadcast(roomId, 'game_started', { sessionId, roomId });
   }
 
   async createRoom(hostId: string, config: {

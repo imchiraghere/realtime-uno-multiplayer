@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../../config/database';
 import { logger } from '../../utils/logger';
+import { sseManager } from '../../utils/sseManager';
 import { GameState, PlayerState, DEFAULT_HOUSE_RULES, getPublicGameState, HouseRules, GameMode, PublicGameState } from './engine/gameState';
 import { createDeck, shuffleDeck } from './engine/deck';
 import { CardColor } from './engine/card';
@@ -25,27 +26,40 @@ export class GameService {
     this.io = io;
   }
   
+  broadcastEvent(roomId: string, event: string, data: unknown): void {
+    if (this.io) {
+      this.io.to(roomId).emit(event, data);
+    }
+    sseManager.broadcast(roomId, event, data);
+  }
+
   private emit(roomId: string, event: string, data: unknown): void {
-    this.io?.to(roomId).emit(event, data);
+    this.broadcastEvent(roomId, event, data);
   }
 
   async broadcastState(roomId: string, state?: GameState): Promise<void> {
     const currentState = state || await this.getGameState(roomId);
-    if (!currentState || !this.io) return;
+    if (!currentState) return;
     
-    const sockets = [...(this.io.sockets.sockets.values())];
-    for (const sock of sockets) {
-      const sockUserId = (sock.data as { userId?: string }).userId;
-      const isPlayerInGame = !!(sockUserId && currentState.players.some(p => p.id === sockUserId));
-      if (sock.rooms.has(roomId) || isPlayerInGame) {
-        if (!sock.rooms.has(roomId)) {
-          sock.join(roomId);
+    // 1. Broadcast via Socket.IO
+    if (this.io) {
+      const sockets = [...(this.io.sockets.sockets.values())];
+      for (const sock of sockets) {
+        const sockUserId = (sock.data as { userId?: string }).userId;
+        const isPlayerInGame = !!(sockUserId && currentState.players.some(p => p.id === sockUserId));
+        if (sock.rooms.has(roomId) || isPlayerInGame) {
+          if (!sock.rooms.has(roomId)) {
+            sock.join(roomId);
+          }
+          const publicState = getPublicGameState(currentState, sockUserId || '__spectator__');
+          sock.emit('game_state_updated', { state: publicState });
+          sock.emit('private_state_updated', { state: publicState });
         }
-        const publicState = getPublicGameState(currentState, sockUserId || '__spectator__');
-        sock.emit('game_state_updated', { state: publicState });
-        sock.emit('private_state_updated', { state: publicState });
       }
     }
+
+    // 2. Broadcast via Server-Sent Events (SSE)
+    sseManager.broadcastGame(roomId, currentState, (st, uid) => getPublicGameState(st, uid));
   }
   
   async createGame(

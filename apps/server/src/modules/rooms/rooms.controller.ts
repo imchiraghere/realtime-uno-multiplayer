@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { roomsService } from './rooms.service';
 import { gameService } from '../game/game.service';
 import { AuthRequest } from '../../middleware/auth';
+import { verifyToken } from '../../utils/jwt';
+import { sseManager } from '../../utils/sseManager';
 
 export async function createRoom(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -121,5 +123,31 @@ export async function getRoomByCode(req: Request, res: Response): Promise<void> 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Error';
     res.status(500).json({ success: false, error: message });
+  }
+}
+
+export async function streamRoomEvents(req: Request, res: Response): Promise<void> {
+  try {
+    const rawToken = (req.query.token as string) || (req.headers.authorization as string)?.replace(/^Bearer\s+/i, '');
+    if (!rawToken) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    const payload = verifyToken(rawToken);
+    const code = Array.isArray(req.params.code) ? req.params.code[0] : req.params.code;
+    const room = await roomsService.getRoomByCode(code);
+    if (!room) {
+      res.status(404).json({ success: false, error: 'Room not found' });
+      return;
+    }
+
+    sseManager.addClient(room.id, payload.userId, req, res);
+
+    // Immediately push current room state
+    res.write(`event: room_updated\ndata: ${JSON.stringify({ room })}\n\n`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Error subscribing to room events';
+    res.status(400).json({ success: false, error: message });
   }
 }

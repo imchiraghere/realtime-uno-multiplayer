@@ -6,10 +6,11 @@ import { useGameStore } from '../store/gameStore';
 import { useAuthStore } from '../store/authStore';
 import { PublicGameState } from '../types/game';
 import { api } from '../lib/api';
+import { subscribeToGameSSE } from '../lib/sse';
 
 export function useGame(roomId: string) {
   const { socket } = useSocketStore();
-  const { user } = useAuthStore();
+  const { user, token } = useAuthStore();
   const { gameState, myHand, setGameState, setLastEvent } = useGameStore();
   
   // REST API fallback for initial load & reconnection
@@ -40,6 +41,36 @@ export function useGame(roomId: string) {
       clearInterval(interval);
     };
   }, [roomId, socket, setGameState]);
+
+  // Real-Time Server-Sent Events (SSE) Stream
+  useEffect(() => {
+    if (!roomId || !token) return;
+
+    const unsubscribe = subscribeToGameSSE(roomId, token, {
+      onGameStateUpdated: ({ state }) => {
+        setGameState(state);
+      },
+      onCardPlayed: ({ playerId }) => {
+        setLastEvent(`card_played:${playerId}`);
+      },
+      onCardDrawn: ({ playerId }) => {
+        setLastEvent(`card_drawn:${playerId}`);
+      },
+      onUnoDeclared: ({ playerId }) => {
+        setLastEvent(`uno:${playerId}`);
+      },
+      onChallengeResult: ({ challengerId, success }) => {
+        setLastEvent(`challenge:${challengerId}:${success}`);
+      },
+      onColorChanged: ({ color, playerId }) => {
+        setLastEvent(`color:${color}:${playerId}`);
+      },
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [roomId, token, setGameState, setLastEvent]);
   
   useEffect(() => {
     if (!socket || !roomId) return;

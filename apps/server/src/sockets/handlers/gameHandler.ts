@@ -7,7 +7,7 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
     try {
       const newState = await gameService.processPlayCard(data.roomId, userId, data.cardId, data.chosenColor);
       
-      io.to(data.roomId).emit('card_played', {
+      gameService.broadcastEvent(data.roomId, 'card_played', {
         playerId: userId,
         cardId: data.cardId,
         chosenColor: data.chosenColor,
@@ -17,7 +17,7 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
       await gameService.broadcastState(data.roomId, newState);
       
       if (newState.phase === 'finished') {
-        io.to(data.roomId).emit('game_over', {
+        gameService.broadcastEvent(data.roomId, 'game_over', {
           winner: newState.winner,
           players: newState.players.map(p => ({ id: p.id, username: p.username, score: p.score })),
         });
@@ -32,13 +32,13 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
     try {
       const newState = await gameService.processDrawCard(data.roomId, userId);
       
-      io.to(data.roomId).emit('card_drawn', { playerId: userId });
+      gameService.broadcastEvent(data.roomId, 'card_drawn', { playerId: userId });
       
       // Broadcast personalized state (including private hand) to each player
       await gameService.broadcastState(data.roomId, newState);
       
       if (newState.phase === 'finished') {
-        io.to(data.roomId).emit('game_over', {
+        gameService.broadcastEvent(data.roomId, 'game_over', {
           winner: newState.winner,
           players: newState.players.map(p => ({ id: p.id, username: p.username, score: p.score })),
         });
@@ -52,7 +52,7 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
   socket.on('declare_uno', async (data: { roomId: string }) => {
     try {
       const newState = await gameService.processDeclareUno(data.roomId, userId);
-      io.to(data.roomId).emit('uno_declared', { playerId: userId });
+      gameService.broadcastEvent(data.roomId, 'uno_declared', { playerId: userId });
       await gameService.broadcastState(data.roomId, newState);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error declaring UNO';
@@ -63,7 +63,7 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
   socket.on('challenge_wild_draw_four', async (data: { roomId: string }) => {
     try {
       const newState = await gameService.processChallenge(data.roomId, userId);
-      io.to(data.roomId).emit('challenge_result', {
+      gameService.broadcastEvent(data.roomId, 'challenge_result', {
         challengerId: userId,
         success: !newState.challengeWindow?.active,
       });
@@ -77,7 +77,7 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
   socket.on('choose_wild_color', async (data: { roomId: string; color: CardColor }) => {
     try {
       const newState = await gameService.processChooseColor(data.roomId, userId, data.color);
-      io.to(data.roomId).emit('color_changed', { color: data.color, playerId: userId });
+      gameService.broadcastEvent(data.roomId, 'color_changed', { color: data.color, playerId: userId });
       await gameService.broadcastState(data.roomId, newState);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error choosing color';

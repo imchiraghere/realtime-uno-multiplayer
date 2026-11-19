@@ -1,5 +1,6 @@
 import { Socket, Server } from 'socket.io';
 import { chatService } from '../../modules/chat/chat.service';
+import { sseManager } from '../../utils/sseManager';
 
 const rateLimits = new Map<string, number[]>();
 
@@ -18,14 +19,16 @@ export function registerChatHandlers(io: Server, socket: Socket, userId: string)
       rateLimits.set(userId, recent);
       
       const msg = await chatService.saveMessage(data.roomId, userId, data.message);
-      io.to(data.roomId).emit('chat_message', {
+      const chatPayload = {
         id: msg.id,
         userId,
         username: msg.user.username,
         avatarUrl: msg.user.profile?.avatarUrl,
         message: data.message,
         createdAt: msg.createdAt,
-      });
+      };
+      io.to(data.roomId).emit('chat_message', chatPayload);
+      sseManager.broadcast(data.roomId, 'chat_message', chatPayload);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error sending message';
       socket.emit('error_message', { message });

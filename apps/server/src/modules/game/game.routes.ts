@@ -7,10 +7,16 @@ import {
   declareUno,
   challengeWild,
   chooseColor,
+  streamGameEvents,
+  getChatMessages,
+  sendChatMessage,
 } from './game.controller';
 
 const router = Router();
 
+router.get('/:roomId/events', streamGameEvents as Parameters<typeof router.get>[1]);
+router.get('/:roomId/chat', authenticate, getChatMessages as Parameters<typeof router.get>[1]);
+router.post('/:roomId/chat', authenticate, sendChatMessage as Parameters<typeof router.post>[1]);
 router.get('/:roomId', authenticate, getGame as Parameters<typeof router.get>[1]);
 router.post('/:roomId/play', authenticate, playCard as Parameters<typeof router.post>[1]);
 router.post('/:roomId/draw', authenticate, drawCard as Parameters<typeof router.post>[1]);
