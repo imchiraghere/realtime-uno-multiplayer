@@ -44,11 +44,17 @@ export class RoomsService {
     }
   }
 
-  notifyGameStarted(roomId: string, sessionId: string): void {
+  notifyGameStarted(roomId: string, sessionId: string, code?: string): void {
     if (this.io) {
-      this.io.to(roomId).emit('game_started', { sessionId, roomId });
+      this.io.to(roomId).emit('game_started', { sessionId, roomId, code });
+      if (code) {
+        this.io.to(code).emit('game_started', { sessionId, roomId, code });
+      }
     }
-    sseManager.broadcast(roomId, 'game_started', { sessionId, roomId });
+    sseManager.broadcast(roomId, 'game_started', { sessionId, roomId, code });
+    if (code) {
+      sseManager.broadcast(code, 'game_started', { sessionId, roomId, code });
+    }
   }
 
   async createRoom(hostId: string, config: {
@@ -240,25 +246,56 @@ export class RoomsService {
     return rooms;
   }
   
-  async startGame(roomId: string, hostId: string) {
-    const room = await this.getRoom(roomId);
+  async getRoomByIdOrCode(idOrCode: string) {
+    if (!idOrCode) return null;
+    const trimmed = idOrCode.trim();
+    return prisma.gameRoom.findFirst({
+      where: {
+        OR: [
+          { id: trimmed },
+          { code: trimmed.toUpperCase() },
+        ],
+      },
+      include: {
+        players: {
+          include: { user: { include: { profile: true, stats: true } } },
+          orderBy: { seat: 'asc' },
+        },
+      },
+    });
+  }
+
+  async startGame(roomIdOrCode: string, hostId: string) {
+    const room = await this.getRoomByIdOrCode(roomIdOrCode);
     if (!room) throw new Error('Room not found');
     if (room.hostId !== hostId) throw new Error('Only host can start');
+
+    // If game is already in playing status, return existing session
+    if (room.status === 'PLAYING') {
+      const existingSession = await prisma.gameSession.findFirst({
+        where: { roomId: room.id, status: 'IN_PROGRESS' },
+        orderBy: { startedAt: 'desc' },
+      });
+      if (existingSession) {
+        return { room, session: existingSession, isExisting: true };
+      }
+    }
+
     if (room.players.length < 2) throw new Error('Need at least 2 players');
     if (!room.players.every(p => p.isReady || p.userId === hostId)) {
       throw new Error('All players must be ready');
     }
     
     const session = await prisma.gameSession.create({
-      data: { roomId },
+      data: { roomId: room.id },
     });
     
     await prisma.gameRoom.update({
-      where: { id: roomId },
+      where: { id: room.id },
       data: { status: 'PLAYING' },
     });
     
-    return { room, session };
+    return { room, session, isExisting: false };
   }
   
   private getNextSeat(usedSeats: number[]): number {

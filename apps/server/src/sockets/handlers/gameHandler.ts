@@ -3,10 +3,16 @@ import { gameService } from '../../modules/game/game.service';
 import { CardColor } from '../../modules/game/engine/card';
 
 export function registerGameHandlers(io: Server, socket: Socket, userId: string): void {
-  socket.on('play_card', async (data: { roomId: string; cardId: string; chosenColor?: CardColor }) => {
+  socket.on('play_card', async (
+    data: { roomId: string; cardId: string; chosenColor?: CardColor },
+    callback?: (res: { success: boolean; state?: unknown; error?: string }) => void
+  ) => {
     try {
       const newState = await gameService.processPlayCard(data.roomId, userId, data.cardId, data.chosenColor);
       
+      await socket.join(newState.roomId);
+      await socket.join(data.roomId);
+
       gameService.broadcastEvent(data.roomId, 'card_played', {
         playerId: userId,
         cardId: data.cardId,
@@ -22,16 +28,25 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
           players: newState.players.map(p => ({ id: p.id, username: p.username, score: p.score })),
         });
       }
+
+      callback?.({ success: true, state: gameService.getPublicState(newState, userId) });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error playing card';
       socket.emit('error_message', { message });
+      callback?.({ success: false, error: message });
     }
   });
   
-  socket.on('draw_card', async (data: { roomId: string }) => {
+  socket.on('draw_card', async (
+    data: { roomId: string },
+    callback?: (res: { success: boolean; state?: unknown; error?: string }) => void
+  ) => {
     try {
       const newState = await gameService.processDrawCard(data.roomId, userId);
       
+      await socket.join(newState.roomId);
+      await socket.join(data.roomId);
+
       gameService.broadcastEvent(data.roomId, 'card_drawn', { playerId: userId });
       
       // Broadcast personalized state (including private hand) to each player
@@ -43,24 +58,35 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
           players: newState.players.map(p => ({ id: p.id, username: p.username, score: p.score })),
         });
       }
+
+      callback?.({ success: true, state: gameService.getPublicState(newState, userId) });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error drawing card';
       socket.emit('error_message', { message });
+      callback?.({ success: false, error: message });
     }
   });
   
-  socket.on('declare_uno', async (data: { roomId: string }) => {
+  socket.on('declare_uno', async (
+    data: { roomId: string },
+    callback?: (res: { success: boolean; state?: unknown; error?: string }) => void
+  ) => {
     try {
       const newState = await gameService.processDeclareUno(data.roomId, userId);
       gameService.broadcastEvent(data.roomId, 'uno_declared', { playerId: userId });
       await gameService.broadcastState(data.roomId, newState);
+      callback?.({ success: true, state: gameService.getPublicState(newState, userId) });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error declaring UNO';
       socket.emit('error_message', { message });
+      callback?.({ success: false, error: message });
     }
   });
   
-  socket.on('challenge_wild_draw_four', async (data: { roomId: string }) => {
+  socket.on('challenge_wild_draw_four', async (
+    data: { roomId: string },
+    callback?: (res: { success: boolean; state?: unknown; error?: string }) => void
+  ) => {
     try {
       const newState = await gameService.processChallenge(data.roomId, userId);
       gameService.broadcastEvent(data.roomId, 'challenge_result', {
@@ -68,34 +94,54 @@ export function registerGameHandlers(io: Server, socket: Socket, userId: string)
         success: !newState.challengeWindow?.active,
       });
       await gameService.broadcastState(data.roomId, newState);
+      callback?.({ success: true, state: gameService.getPublicState(newState, userId) });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error challenging';
       socket.emit('error_message', { message });
+      callback?.({ success: false, error: message });
     }
   });
   
-  socket.on('choose_wild_color', async (data: { roomId: string; color: CardColor }) => {
+  socket.on('choose_wild_color', async (
+    data: { roomId: string; color: CardColor },
+    callback?: (res: { success: boolean; state?: unknown; error?: string }) => void
+  ) => {
     try {
       const newState = await gameService.processChooseColor(data.roomId, userId, data.color);
       gameService.broadcastEvent(data.roomId, 'color_changed', { color: data.color, playerId: userId });
       await gameService.broadcastState(data.roomId, newState);
+      callback?.({ success: true, state: gameService.getPublicState(newState, userId) });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error choosing color';
       socket.emit('error_message', { message });
+      callback?.({ success: false, error: message });
     }
   });
   
-  socket.on('request_game_state', async (data: { roomId: string }) => {
+  socket.on('request_game_state', async (
+    data: { roomId: string },
+    callback?: (res: { success: boolean; state?: unknown; error?: string }) => void
+  ) => {
     try {
       const state = await gameService.getGameState(data.roomId);
-      if (!state) { socket.emit('error_message', { message: 'Game not found' }); return; }
+      if (!state) {
+        socket.emit('error_message', { message: 'Game not found' });
+        callback?.({ success: false, error: 'Game not found' });
+        return;
+      }
+
+      await gameService.handlePlayerReconnect(state.roomId, userId);
+      await socket.join(state.roomId);
       await socket.join(data.roomId);
+
       const publicState = gameService.getPublicState(state, userId);
       socket.emit('game_state_updated', { state: publicState });
       socket.emit('private_state_updated', { state: publicState });
+      callback?.({ success: true, state: publicState });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error';
       socket.emit('error_message', { message });
+      callback?.({ success: false, error: message });
     }
   });
   

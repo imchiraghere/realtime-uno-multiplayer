@@ -11,7 +11,15 @@ import { subscribeToGameSSE } from '../lib/sse';
 export function useGame(roomId: string) {
   const { socket } = useSocketStore();
   const { user, token } = useAuthStore();
-  const { gameState, myHand, setGameState, setLastEvent } = useGameStore();
+  const {
+    gameState,
+    myHand,
+    setGameState,
+    setLastEvent,
+    optimisticPlayCard,
+    setIsSubmittingPlay,
+    isSubmittingPlay,
+  } = useGameStore();
   
   // REST API fallback for initial load & reconnection
   useEffect(() => {
@@ -109,7 +117,11 @@ export function useGame(roomId: string) {
     
     // Request current state immediately and on reconnect
     const requestState = () => {
-      socket.emit('request_game_state', { roomId });
+      socket.emit('request_game_state', { roomId }, (response?: { success: boolean; state?: PublicGameState }) => {
+        if (response?.success && response.state) {
+          setGameState(response.state);
+        }
+      });
     };
 
     socket.on('connect', requestState);
@@ -126,15 +138,28 @@ export function useGame(roomId: string) {
       socket.off('color_changed');
       socket.off('error_message');
     };
-  }, [socket, roomId]);
+  }, [socket, roomId, setGameState, setLastEvent]);
   
   const isMyTurn = gameState
     ? gameState.players[gameState.currentPlayerIndex]?.id === user?.id
     : false;
   
   const playCard = useCallback((cardId: string, chosenColor?: string) => {
+    // Optimistic instant response in UI
+    optimisticPlayCard(cardId, chosenColor);
+
     if (socket && socket.connected) {
-      socket.emit('play_card', { roomId, cardId, chosenColor });
+      socket.emit(
+        'play_card',
+        { roomId, cardId, chosenColor },
+        (res?: { success: boolean; state?: PublicGameState; error?: string }) => {
+          if (res?.success && res.state) {
+            setGameState(res.state);
+          } else if (res?.error) {
+            setLastEvent(`error:${res.error}`);
+          }
+        }
+      );
     } else {
       api.post<PublicGameState>(`/api/game/${roomId}/play`, { cardId, chosenColor })
         .then((res) => { if (res) setGameState(res); })
@@ -143,11 +168,22 @@ export function useGame(roomId: string) {
           setLastEvent(`error:${msg}`);
         });
     }
-  }, [socket, roomId, setGameState, setLastEvent]);
+  }, [socket, roomId, setGameState, setLastEvent, optimisticPlayCard]);
   
   const drawCard = useCallback(() => {
+    setIsSubmittingPlay(true);
     if (socket && socket.connected) {
-      socket.emit('draw_card', { roomId });
+      socket.emit(
+        'draw_card',
+        { roomId },
+        (res?: { success: boolean; state?: PublicGameState; error?: string }) => {
+          if (res?.success && res.state) {
+            setGameState(res.state);
+          } else if (res?.error) {
+            setLastEvent(`error:${res.error}`);
+          }
+        }
+      );
     } else {
       api.post<PublicGameState>(`/api/game/${roomId}/draw`)
         .then((res) => { if (res) setGameState(res); })
@@ -156,7 +192,7 @@ export function useGame(roomId: string) {
           setLastEvent(`error:${msg}`);
         });
     }
-  }, [socket, roomId, setGameState, setLastEvent]);
+  }, [socket, roomId, setGameState, setLastEvent, setIsSubmittingPlay]);
   
   const declareUno = useCallback(() => {
     if (socket && socket.connected) {

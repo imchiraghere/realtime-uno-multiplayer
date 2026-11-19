@@ -20,36 +20,62 @@ const GAME_STATE_TTL = 3600 * 24; // 24 hours
 
 export class GameService {
   private games = new Map<string, GameState>();
+  private codeToId = new Map<string, string>();
+  private idToCode = new Map<string, string>();
   private io: Server | null = null;
   
   setIO(io: Server): void {
     this.io = io;
   }
   
-  broadcastEvent(roomId: string, event: string, data: unknown): void {
+  broadcastEvent(roomIdOrCode: string, event: string, data: unknown): void {
+    const code = this.idToCode.get(roomIdOrCode);
+    const id = this.codeToId.get(roomIdOrCode.toUpperCase());
+
     if (this.io) {
-      this.io.to(roomId).emit(event, data);
+      this.io.to(roomIdOrCode).emit(event, data);
+      if (code && code !== roomIdOrCode) {
+        this.io.to(code).emit(event, data);
+      }
+      if (id && id !== roomIdOrCode) {
+        this.io.to(id).emit(event, data);
+      }
     }
-    sseManager.broadcast(roomId, event, data);
+
+    sseManager.broadcast(roomIdOrCode, event, data);
+    if (code && code !== roomIdOrCode) {
+      sseManager.broadcast(code, event, data);
+    }
+    if (id && id !== roomIdOrCode) {
+      sseManager.broadcast(id, event, data);
+    }
   }
 
   private emit(roomId: string, event: string, data: unknown): void {
     this.broadcastEvent(roomId, event, data);
   }
 
-  async broadcastState(roomId: string, state?: GameState): Promise<void> {
-    const currentState = state || await this.getGameState(roomId);
+  async broadcastState(roomIdOrCode: string, state?: GameState): Promise<void> {
+    const currentState = state || await this.getGameState(roomIdOrCode);
     if (!currentState) return;
     
+    const roomId = currentState.roomId;
+    const roomCode = this.idToCode.get(roomId);
+
     // 1. Broadcast via Socket.IO
     if (this.io) {
       const sockets = [...(this.io.sockets.sockets.values())];
       for (const sock of sockets) {
         const sockUserId = (sock.data as { userId?: string }).userId;
         const isPlayerInGame = !!(sockUserId && currentState.players.some(p => p.id === sockUserId));
-        if (sock.rooms.has(roomId) || isPlayerInGame) {
+        const isInRoom = sock.rooms.has(roomId) || (roomCode && sock.rooms.has(roomCode)) || sock.rooms.has(roomIdOrCode);
+
+        if (isInRoom || isPlayerInGame) {
           if (!sock.rooms.has(roomId)) {
             sock.join(roomId);
+          }
+          if (roomCode && !sock.rooms.has(roomCode)) {
+            sock.join(roomCode);
           }
           const publicState = getPublicGameState(currentState, sockUserId || '__spectator__');
           sock.emit('game_state_updated', { state: publicState });
@@ -60,6 +86,9 @@ export class GameService {
 
     // 2. Broadcast via Server-Sent Events (SSE)
     sseManager.broadcastGame(roomId, currentState, (st, uid) => getPublicGameState(st, uid));
+    if (roomCode && roomCode !== roomId) {
+      sseManager.broadcastGame(roomCode, currentState, (st, uid) => getPublicGameState(st, uid));
+    }
   }
   
   async createGame(
@@ -68,8 +97,21 @@ export class GameService {
     playerInfos: Array<{ id: string; username: string; seat: number; isBot: boolean; botDifficulty?: string; avatarUrl?: string }>,
     gameMode: GameMode,
     houseRules: Partial<HouseRules>,
-    turnTimerSeconds: number
+    turnTimerSeconds: number,
+    roomCode?: string
   ): Promise<GameState> {
+    // If an active game already exists in memory or DB for this room, preserve it
+    const existing = this.games.get(roomId);
+    if (existing && existing.phase === 'playing' && existing.players.length > 0) {
+      return existing;
+    }
+
+    if (roomCode) {
+      const upperCode = roomCode.trim().toUpperCase();
+      this.codeToId.set(upperCode, roomId);
+      this.idToCode.set(roomId, upperCode);
+    }
+
     const deck = shuffleDeck(createDeck());
     const mergedHouseRules = { ...DEFAULT_HOUSE_RULES, ...houseRules };
     const handSize = mergedHouseRules.startingHandSize;
@@ -119,6 +161,9 @@ export class GameService {
     };
     
     this.games.set(roomId, state);
+    if (roomCode) {
+      this.games.set(roomCode.trim().toUpperCase(), state);
+    }
     await this.saveGameState(state);
     
     // Start turn timer
@@ -132,12 +177,100 @@ export class GameService {
     return state;
   }
   
-  async getGameState(roomId: string): Promise<GameState | null> {
-    return this.games.get(roomId) || null;
+  async getGameState(idOrCode: string): Promise<GameState | null> {
+    if (!idOrCode) return null;
+    const cleanKey = idOrCode.trim();
+    const upperKey = cleanKey.toUpperCase();
+
+    // 1. Direct memory lookup
+    let state = this.games.get(cleanKey) || this.games.get(upperKey);
+    if (state) return state;
+
+    // 2. Check codeToId / idToCode alias
+    const mappedId = this.codeToId.get(upperKey) || this.idToCode.get(cleanKey);
+    if (mappedId) {
+      state = this.games.get(mappedId);
+      if (state) return state;
+    }
+
+    // 3. Fallback: Query database
+    try {
+      const room = await prisma.gameRoom.findFirst({
+        where: {
+          OR: [
+            { id: cleanKey },
+            { code: upperKey },
+          ],
+        },
+        include: {
+          sessions: {
+            where: { status: 'IN_PROGRESS' },
+            orderBy: { startedAt: 'desc' },
+            take: 1,
+          },
+        },
+      });
+
+      if (room) {
+        this.codeToId.set(room.code, room.id);
+        this.idToCode.set(room.id, room.code);
+
+        // Check if room.id was cached
+        state = this.games.get(room.id);
+        if (state) {
+          this.games.set(room.code, state);
+          return state;
+        }
+
+        // Restore from GameSession in database
+        const activeSession = room.sessions[0];
+        if (activeSession?.gameState) {
+          try {
+            const parsed = typeof activeSession.gameState === 'string'
+              ? JSON.parse(activeSession.gameState)
+              : activeSession.gameState;
+            
+            if (parsed && parsed.roomId && parsed.players) {
+              state = parsed as GameState;
+              this.games.set(room.id, state);
+              this.games.set(room.code, state);
+              return state;
+            }
+          } catch (e) {
+            logger.error('Failed to parse gameState from DB', e);
+          }
+        }
+      }
+    } catch (err) {
+      logger.error('Error fetching game state from DB', err);
+    }
+
+    return null;
   }
   
   async saveGameState(state: GameState): Promise<void> {
     this.games.set(state.roomId, state);
+    const code = this.idToCode.get(state.roomId);
+    if (code) {
+      this.games.set(code, state);
+    }
+
+    // Persist to database asynchronously
+    try {
+      await prisma.gameSession.update({
+        where: { id: state.sessionId },
+        data: {
+          gameState: JSON.stringify(state) as any,
+          turnNumber: state.turnNumber,
+          currentColor: state.currentColor,
+          currentPlayerIndex: state.currentPlayerIndex,
+          direction: state.direction,
+          drawCount: state.pendingDrawCount,
+        },
+      });
+    } catch (err) {
+      logger.error('Failed to persist gameState to DB', err);
+    }
   }
   
   async loadGameState(roomId: string): Promise<GameState | null> {

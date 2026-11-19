@@ -52,34 +52,38 @@ export async function startGame(req: AuthRequest, res: Response): Promise<void> 
     const userId = req.user?.userId;
     if (!userId) { res.status(401).json({ success: false, error: 'Unauthorized' }); return; }
     const code = Array.isArray(req.params.code) ? req.params.code[0] : req.params.code;
-    const roomObj = await roomsService.getRoomByCode(code);
+    const roomObj = await roomsService.getRoomByIdOrCode(code);
     if (!roomObj) { res.status(404).json({ success: false, error: 'Room not found' }); return; }
     
-    const { room, session } = await roomsService.startGame(roomObj.id, userId);
+    const { room, session, isExisting } = await roomsService.startGame(roomObj.id, userId);
 
-    const playerInfos = room.players.map(p => ({
-      id: p.userId,
-      username: p.user.username,
-      seat: p.seat,
-      isBot: p.isBot,
-      botDifficulty: p.botDifficulty ?? undefined,
-      avatarUrl: p.user.profile?.avatarUrl ?? undefined,
-    }));
+    let gameState = await gameService.getGameState(room.id);
+    if (!gameState || !isExisting) {
+      const playerInfos = room.players.map(p => ({
+        id: p.userId,
+        username: p.user.username,
+        seat: p.seat,
+        isBot: p.isBot,
+        botDifficulty: p.botDifficulty ?? undefined,
+        avatarUrl: p.user.profile?.avatarUrl ?? undefined,
+      }));
 
-    const houseRules = typeof room.houseRules === 'object' && room.houseRules !== null
-      ? room.houseRules as Record<string, unknown>
-      : {};
+      const houseRules = typeof room.houseRules === 'object' && room.houseRules !== null
+        ? room.houseRules as Record<string, unknown>
+        : {};
 
-    const gameState = await gameService.createGame(
-      room.id,
-      session.id,
-      playerInfos,
-      room.gameMode.toLowerCase() as 'classic' | 'house_rules' | 'quick_match',
-      houseRules as Parameters<typeof gameService.createGame>[4],
-      room.turnTimerSeconds
-    );
+      gameState = await gameService.createGame(
+        room.id,
+        session.id,
+        playerInfos,
+        room.gameMode.toLowerCase() as 'classic' | 'house_rules' | 'quick_match',
+        houseRules as Parameters<typeof gameService.createGame>[4],
+        room.turnTimerSeconds,
+        room.code
+      );
+    }
 
-    roomsService.notifyGameStarted(room.id, session.id);
+    roomsService.notifyGameStarted(room.id, session.id, room.code);
     await gameService.broadcastState(room.id, gameState);
 
     res.json({ success: true, data: { room, session } });

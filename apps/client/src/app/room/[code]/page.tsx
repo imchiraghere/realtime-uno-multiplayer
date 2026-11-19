@@ -226,18 +226,18 @@ export default function WaitingRoomPage() {
 
     if (socket && socket.connected) {
       socket.emit('start_game', { roomId: room.id });
-    }
-
-    try {
-      const res = await api.post<{ success: boolean; data: { room: GameRoom } }>(`/api/rooms/${room.code}/start`);
-      if (res?.data?.room?.id) {
-        playTurnStart();
-        router.push(`/game/${res.data.room.id}`);
+    } else {
+      try {
+        const res = await api.post<{ success: boolean; data: { room: GameRoom } }>(`/api/rooms/${room.code}/start`);
+        if (res?.data?.room?.id) {
+          playTurnStart();
+          router.push(`/game/${res.data.room.id}`);
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Error starting game';
+        setError(message);
+        setStarting(false);
       }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Error starting game';
-      setError(message);
-      setStarting(false);
     }
   };
   

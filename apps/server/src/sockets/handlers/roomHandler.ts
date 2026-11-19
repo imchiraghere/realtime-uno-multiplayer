@@ -19,6 +19,7 @@ export function registerRoomHandlers(io: Server, socket: Socket, userId: string,
     try {
       const room = await roomsService.createRoom(userId, data);
       await socket.join(room.id);
+      await socket.join(room.code);
       socket.emit('room_created', { room });
       logger.info(`Room created: ${room.code} by ${username}`);
     } catch (err: unknown) {
@@ -32,8 +33,10 @@ export function registerRoomHandlers(io: Server, socket: Socket, userId: string,
       const room = await roomsService.joinRoom(userId, data.code, data.password);
       if (!room) throw new Error('Room not found');
       await socket.join(room.id);
+      await socket.join(room.code);
       socket.emit('room_joined', { room });
       io.to(room.id).emit('player_joined', { room });
+      io.to(room.code).emit('player_joined', { room });
       logger.info(`${username} joined room ${data.code}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error joining room';
@@ -70,34 +73,46 @@ export function registerRoomHandlers(io: Server, socket: Socket, userId: string,
   
   socket.on('start_game', async (data: { roomId: string }) => {
     try {
-      const { room, session } = await roomsService.startGame(data.roomId, userId);
+      const { room, session, isExisting } = await roomsService.startGame(data.roomId, userId);
       
-      const playerInfos = room.players.map(p => ({
-        id: p.userId,
-        username: p.user.username,
-        seat: p.seat,
-        isBot: p.isBot,
-        botDifficulty: p.botDifficulty ?? undefined,
-        avatarUrl: p.user.profile?.avatarUrl ?? undefined,
-      }));
+      let gameState = await gameService.getGameState(room.id);
+      if (!gameState || !isExisting) {
+        const playerInfos = room.players.map(p => ({
+          id: p.userId,
+          username: p.user.username,
+          seat: p.seat,
+          isBot: p.isBot,
+          botDifficulty: p.botDifficulty ?? undefined,
+          avatarUrl: p.user.profile?.avatarUrl ?? undefined,
+        }));
+        
+        const houseRules = typeof room.houseRules === 'object' && room.houseRules !== null
+          ? room.houseRules as Record<string, unknown>
+          : {};
+        
+        gameState = await gameService.createGame(
+          room.id,
+          session.id,
+          playerInfos,
+          room.gameMode.toLowerCase() as 'classic' | 'house_rules' | 'quick_match',
+          houseRules as Parameters<typeof gameService.createGame>[4],
+          room.turnTimerSeconds,
+          room.code
+        );
+      }
       
-      const houseRules = typeof room.houseRules === 'object' && room.houseRules !== null
-        ? room.houseRules as Record<string, unknown>
-        : {};
+      await socket.join(room.id);
+      await socket.join(room.code);
       
-      const gameState = await gameService.createGame(
-        room.id,
-        session.id,
-        playerInfos,
-        room.gameMode.toLowerCase() as 'classic' | 'house_rules' | 'quick_match',
-        houseRules as Parameters<typeof gameService.createGame>[4],
-        room.turnTimerSeconds
-      );
+      io.to(room.id).emit('game_started', { sessionId: session.id, roomId: room.id, code: room.code });
+      io.to(room.code).emit('game_started', { sessionId: session.id, roomId: room.id, code: room.code });
+      if (data.roomId !== room.id && data.roomId !== room.code) {
+        io.to(data.roomId).emit('game_started', { sessionId: session.id, roomId: room.id, code: room.code });
+      }
       
-      io.to(data.roomId).emit('game_started', { sessionId: session.id, roomId: room.id });
       await gameService.broadcastState(room.id, gameState);
       
-      logger.info(`Game started in room ${data.roomId}`);
+      logger.info(`Game started in room ${room.code} (${room.id})`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error starting game';
       socket.emit('error_message', { message });
