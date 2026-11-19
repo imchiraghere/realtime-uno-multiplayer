@@ -151,7 +151,6 @@ model GameSession {
   startedAt          DateTime      @default(now())
   finishedAt         DateTime?
   winnerId           String?
-  gameState          Json?
   room               GameRoom      @relation(fields: [roomId], references: [id])
   players            GamePlayer[]
   events             GameEvent[]

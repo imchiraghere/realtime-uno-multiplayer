@@ -222,22 +222,32 @@ export class GameService {
           return state;
         }
 
-        // Restore from GameSession in database
+        // Restore from GameEvent snapshot in database
         const activeSession = room.sessions[0];
-        if (activeSession?.gameState) {
-          try {
-            const parsed = typeof activeSession.gameState === 'string'
-              ? JSON.parse(activeSession.gameState)
-              : activeSession.gameState;
-            
-            if (parsed && parsed.roomId && parsed.players) {
-              state = parsed as GameState;
-              this.games.set(room.id, state);
-              this.games.set(room.code, state);
-              return state;
+        if (activeSession) {
+          const latestSnapshot = await prisma.gameEvent.findFirst({
+            where: {
+              sessionId: activeSession.id,
+              eventType: 'GAME_STATE_SNAPSHOT',
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+
+          if (latestSnapshot?.data) {
+            try {
+              const parsed = typeof latestSnapshot.data === 'string'
+                ? JSON.parse(latestSnapshot.data)
+                : latestSnapshot.data;
+              
+              if (parsed && parsed.roomId && parsed.players) {
+                state = parsed as GameState;
+                this.games.set(room.id, state);
+                this.games.set(room.code, state);
+                return state;
+              }
+            } catch (e) {
+              logger.error('Failed to parse gameState from DB', e);
             }
-          } catch (e) {
-            logger.error('Failed to parse gameState from DB', e);
           }
         }
       }
@@ -255,17 +265,24 @@ export class GameService {
       this.games.set(code, state);
     }
 
-    // Persist to database asynchronously
+    // Persist to database asynchronously using GameSession updates and GameEvent snapshots
     try {
       await prisma.gameSession.update({
         where: { id: state.sessionId },
         data: {
-          gameState: JSON.stringify(state) as any,
           turnNumber: state.turnNumber,
           currentColor: state.currentColor,
           currentPlayerIndex: state.currentPlayerIndex,
           direction: state.direction,
           drawCount: state.pendingDrawCount,
+        },
+      });
+
+      await prisma.gameEvent.create({
+        data: {
+          sessionId: state.sessionId,
+          eventType: 'GAME_STATE_SNAPSHOT',
+          data: state as any,
         },
       });
     } catch (err) {
