@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User } from '../types/user';
 import { api } from '../lib/api';
+import { disconnectSocket } from '../lib/socket';
 
 interface AuthStore {
   user: User | null;
@@ -62,7 +63,19 @@ export const useAuthStore = create<AuthStore>()(
       
       logout: () => {
         api.setToken(null);
-        set({ user: null, token: null, isAuthenticated: false });
+        try {
+          disconnectSocket();
+        } catch {
+          // ignore
+        }
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem('uno-auth');
+          } catch {
+            // ignore
+          }
+        }
+        set({ user: null, token: null, isAuthenticated: false, isLoading: false });
       },
       
       setUser: (user) => set({ user }),

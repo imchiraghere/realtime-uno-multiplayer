@@ -37,7 +37,7 @@ export default function WaitingRoomPage() {
   const router = useRouter();
   const code = (params.code as string)?.toUpperCase();
   
-  const { user, isAuthenticated, loginAsGuest } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { socket } = useSocketStore();
   const { currentRoom, setCurrentRoom } = useRoomStore();
   const [copied, setCopied] = useState(false);
@@ -47,9 +47,9 @@ export default function WaitingRoomPage() {
   
   useEffect(() => {
     if (!isAuthenticated && !user) {
-      loginAsGuest().catch(() => router.push('/login'));
+      router.push('/login');
     }
-  }, [isAuthenticated, user, loginAsGuest, router]);
+  }, [isAuthenticated, user, router]);
   
   useEffect(() => {
     if (!socket || !code) return;

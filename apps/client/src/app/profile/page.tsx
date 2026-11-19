@@ -6,7 +6,7 @@ import { Navbar } from '../../components/layout/Navbar';
 import { useAuth } from '../../hooks/useAuth';
 import { api } from '../../lib/api';
 import { User } from '../../types/user';
-import { Trophy, Gamepad2, TrendingUp, Star, Award, Shield, Sparkles, Clock, Calendar } from 'lucide-react';
+import { Trophy, Gamepad2, TrendingUp, Star, Award, Shield, Sparkles, Clock, Calendar, LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { clsx } from 'clsx';
 
@@ -15,7 +15,7 @@ function getAvatarUrl(username: string): string {
 }
 
 export default function ProfilePage() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const router = useRouter();
   const [profile, setProfile] = useState<User | null>(null);
   const [history, setHistory] = useState<Array<{ id: string; result: string; score: number; createdAt: string }>>([]);
@@ -89,6 +89,17 @@ export default function ProfilePage() {
                     Member
                   </span>
                 )}
+                <button
+                  onClick={() => {
+                    logout();
+                    router.push('/');
+                  }}
+                  className="text-xs text-red-400 hover:text-red-300 font-semibold px-2.5 py-1 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 flex items-center gap-1.5 transition-colors sm:ml-auto cursor-pointer"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Sign Out
+                </button>
               </div>
 
               <div className="flex items-center justify-center sm:justify-start gap-3 mt-2 text-xs text-white/60">

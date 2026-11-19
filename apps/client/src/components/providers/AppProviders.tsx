@@ -6,20 +6,18 @@ import { useSocket } from '../../hooks/useSocket';
 import { api } from '../../lib/api';
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  const { token, isAuthenticated, loginAsGuest } = useAuthStore();
+  const { token } = useAuthStore();
   
-  // Keep socket connected globally
+  // Keep socket connected globally when user has a token
   useSocket();
 
   useEffect(() => {
     if (token) {
       api.setToken(token);
-    } else if (!isAuthenticated) {
-      // Auto-authenticate guests so rooms and games work seamlessly
-      loginAsGuest().catch(() => {});
+    } else {
+      api.setToken(null);
     }
-  }, [token, isAuthenticated, loginAsGuest]);
+  }, [token]);
 
   return <>{children}</>;
 }
-

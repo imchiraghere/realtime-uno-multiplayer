@@ -138,7 +138,7 @@ function RoomCard({ room, onJoin }: { room: GameRoom; onJoin: () => void }) {
 
 export default function LobbyPage() {
   const router = useRouter();
-  const { user, isAuthenticated, loginAsGuest } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { publicRooms, setPublicRooms } = useRoomStore();
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
@@ -151,9 +151,9 @@ export default function LobbyPage() {
   
   useEffect(() => {
     if (!isAuthenticated) {
-      loginAsGuest().catch(() => router.push('/login'));
+      router.push('/login');
     }
-  }, [isAuthenticated, loginAsGuest, router]);
+  }, [isAuthenticated, router]);
   
   const fetchRooms = async () => {
     try {

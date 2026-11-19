@@ -105,11 +105,15 @@ export function Navbar() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="p-2"
-                onClick={() => { logout(); router.push('/'); }}
+                className="p-2 text-white/60 hover:text-red-400 hover:bg-white/10 transition-colors"
+                onClick={() => {
+                  logout();
+                  router.push('/');
+                  router.refresh();
+                }}
                 title="Sign Out"
               >
-                <LogOut className="w-4 h-4 text-white/60 hover:text-red-400" />
+                <LogOut className="w-4 h-4" />
               </Button>
             </div>
           ) : (
