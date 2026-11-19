@@ -4,7 +4,6 @@ export const config = {
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3001',
   jwtSecret: process.env.JWT_SECRET || 'fallback-secret-change-in-production',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
-  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   databaseUrl: process.env.DATABASE_URL || '',
   turnTimerSeconds: 30,
   reconnectTimeoutSeconds: 30,

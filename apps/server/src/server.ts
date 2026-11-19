@@ -18,11 +18,11 @@ import roomsRoutes from './modules/rooms/rooms.routes';
 import friendsRoutes from './modules/friends/friends.routes';
 import adminRoutes from './modules/admin/admin.routes';
 import leaderboardRoutes from './modules/leaderboard/leaderboard.routes';
+import gameRoutes from './modules/game/game.routes';
 
 import { initializeSockets } from './sockets';
 import { achievementsService } from './modules/achievements/achievements.service';
 import { prisma } from './config/database';
-import { redis } from './config/redis';
 import { renderLandingPage } from './views/landingPage';
 import { ensureDatabaseInitialized } from './config/autoInitDatabase';
 
@@ -58,6 +58,12 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(compression() as any);
+
+// Handle Socket.io polling requests directly through Express (for serverless environments & proxies)
+app.all('/socket.io*', (req, res) => {
+  io.engine.handleRequest(req as any, res as any);
+});
+
 app.use(morgan('combined', { stream: { write: (msg) => logger.info(msg.trim()) } }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
@@ -106,6 +112,7 @@ app.all(['/api/db/init', '/api/init-db'], async (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/rooms', roomsRoutes);
+app.use('/api/game', gameRoutes);
 app.use('/api/friends', friendsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
@@ -118,20 +125,12 @@ app.get('/', (_req, res) => {
 // Health check
 app.get(['/health', '/api/health'], async (_req, res) => {
   let dbStatus = 'disconnected';
-  let redisStatus = 'disconnected';
 
   try {
     await prisma.$queryRaw`SELECT 1`;
     dbStatus = 'connected';
   } catch (err) {
     dbStatus = 'disconnected';
-  }
-
-  try {
-    const pingResult = await redis.ping();
-    redisStatus = pingResult === 'PONG' ? 'connected' : 'degraded';
-  } catch (err) {
-    redisStatus = 'disconnected';
   }
 
   res.json({
@@ -142,7 +141,7 @@ app.get(['/health', '/api/health'], async (_req, res) => {
     services: {
       server: 'running',
       database: dbStatus,
-      redis: redisStatus,
+      store: 'in-memory',
     },
   });
 });

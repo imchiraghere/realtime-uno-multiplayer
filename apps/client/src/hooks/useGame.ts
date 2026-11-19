@@ -5,11 +5,41 @@ import { useSocketStore } from '../store/socketStore';
 import { useGameStore } from '../store/gameStore';
 import { useAuthStore } from '../store/authStore';
 import { PublicGameState } from '../types/game';
+import { api } from '../lib/api';
 
 export function useGame(roomId: string) {
   const { socket } = useSocketStore();
   const { user } = useAuthStore();
   const { gameState, myHand, setGameState, setLastEvent } = useGameStore();
+  
+  // REST API fallback for initial load & reconnection
+  useEffect(() => {
+    if (!roomId) return;
+    let isMounted = true;
+
+    const fetchState = async () => {
+      try {
+        const res = await api.get<PublicGameState>(`/api/game/${roomId}`);
+        if (isMounted && res) {
+          setGameState(res);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    fetchState();
+    const interval = setInterval(() => {
+      if (!socket || !socket.connected) {
+        fetchState();
+      }
+    }, 2500);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [roomId, socket, setGameState]);
   
   useEffect(() => {
     if (!socket || !roomId) return;
@@ -72,24 +102,60 @@ export function useGame(roomId: string) {
     : false;
   
   const playCard = useCallback((cardId: string, chosenColor?: string) => {
-    socket?.emit('play_card', { roomId, cardId, chosenColor });
-  }, [socket, roomId]);
+    if (socket && socket.connected) {
+      socket.emit('play_card', { roomId, cardId, chosenColor });
+    } else {
+      api.post<PublicGameState>(`/api/game/${roomId}/play`, { cardId, chosenColor })
+        .then((res) => { if (res) setGameState(res); })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'Error playing card';
+          setLastEvent(`error:${msg}`);
+        });
+    }
+  }, [socket, roomId, setGameState, setLastEvent]);
   
   const drawCard = useCallback(() => {
-    socket?.emit('draw_card', { roomId });
-  }, [socket, roomId]);
+    if (socket && socket.connected) {
+      socket.emit('draw_card', { roomId });
+    } else {
+      api.post<PublicGameState>(`/api/game/${roomId}/draw`)
+        .then((res) => { if (res) setGameState(res); })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'Error drawing card';
+          setLastEvent(`error:${msg}`);
+        });
+    }
+  }, [socket, roomId, setGameState, setLastEvent]);
   
   const declareUno = useCallback(() => {
-    socket?.emit('declare_uno', { roomId });
-  }, [socket, roomId]);
+    if (socket && socket.connected) {
+      socket.emit('declare_uno', { roomId });
+    } else {
+      api.post<PublicGameState>(`/api/game/${roomId}/uno`)
+        .then((res) => { if (res) setGameState(res); })
+        .catch(() => {});
+    }
+  }, [socket, roomId, setGameState]);
   
   const challengeWildDrawFour = useCallback(() => {
-    socket?.emit('challenge_wild_draw_four', { roomId });
-  }, [socket, roomId]);
+    if (socket && socket.connected) {
+      socket.emit('challenge_wild_draw_four', { roomId });
+    } else {
+      api.post<PublicGameState>(`/api/game/${roomId}/challenge`)
+        .then((res) => { if (res) setGameState(res); })
+        .catch(() => {});
+    }
+  }, [socket, roomId, setGameState]);
   
   const chooseColor = useCallback((color: string) => {
-    socket?.emit('choose_wild_color', { roomId, color });
-  }, [socket, roomId]);
+    if (socket && socket.connected) {
+      socket.emit('choose_wild_color', { roomId, color });
+    } else {
+      api.post<PublicGameState>(`/api/game/${roomId}/color`, { color })
+        .then((res) => { if (res) setGameState(res); })
+        .catch(() => {});
+    }
+  }, [socket, roomId, setGameState]);
   
   const sendMessage = useCallback((message: string) => {
     socket?.emit('send_chat_message', { roomId, message });

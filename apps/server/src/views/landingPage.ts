@@ -380,9 +380,9 @@ export function renderLandingPage(config: {
         </div>
 
         <div class="metric-box">
-          <div class="metric-label">Redis Cache</div>
+          <div class="metric-label">Game Store</div>
           <div class="metric-value">
-            <span class="status-badge badge-warn" id="redis-badge">Checking...</span>
+            <span class="status-badge badge-ok" id="store-badge">In-Memory</span>
           </div>
         </div>
 
@@ -407,7 +407,7 @@ export function renderLandingPage(config: {
             <span class="method method-get">GET</span>
             <span class="endpoint-path">/health</span>
           </div>
-          <span class="endpoint-desc">System health, DB &amp; Redis ping diagnostics</span>
+          <span class="endpoint-desc">System health, DB &amp; service diagnostics</span>
         </div>
 
         <div class="endpoint-item">
@@ -488,13 +488,10 @@ export function renderLandingPage(config: {
             dbBadge.textContent = 'Disconnected';
           }
 
-          const redisBadge = document.getElementById('redis-badge');
-          if (data.services?.redis === 'connected') {
-            redisBadge.className = 'status-badge badge-ok';
-            redisBadge.textContent = 'Connected';
-          } else {
-            redisBadge.className = 'status-badge badge-warn';
-            redisBadge.textContent = data.services?.redis || 'Disconnected';
+          const storeBadge = document.getElementById('store-badge');
+          if (storeBadge) {
+            storeBadge.className = 'status-badge badge-ok';
+            storeBadge.textContent = (data.services?.store || 'In-Memory').toUpperCase();
           }
         }
       } catch (e) {

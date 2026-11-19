@@ -1,5 +1,4 @@
 import { v4 as uuidv4 } from 'uuid';
-import { redis } from '../../config/redis';
 import { prisma } from '../../config/database';
 import { logger } from '../../utils/logger';
 import { GameState, PlayerState, DEFAULT_HOUSE_RULES, getPublicGameState, HouseRules, GameMode, PublicGameState } from './engine/gameState';
@@ -120,27 +119,15 @@ export class GameService {
   }
   
   async getGameState(roomId: string): Promise<GameState | null> {
-    const cached = this.games.get(roomId);
-    if (cached) return cached;
-    return this.loadGameState(roomId);
+    return this.games.get(roomId) || null;
   }
   
   async saveGameState(state: GameState): Promise<void> {
-    await redis.set(
-      `game:${state.roomId}`,
-      JSON.stringify(state),
-      'EX',
-      GAME_STATE_TTL
-    );
     this.games.set(state.roomId, state);
   }
   
   async loadGameState(roomId: string): Promise<GameState | null> {
-    const data = await redis.get(`game:${roomId}`);
-    if (!data) return null;
-    const state = JSON.parse(data) as GameState;
-    this.games.set(roomId, state);
-    return state;
+    return this.games.get(roomId) || null;
   }
   
   async processPlayCard(

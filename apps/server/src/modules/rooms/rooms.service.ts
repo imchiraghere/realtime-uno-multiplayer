@@ -1,8 +1,45 @@
+import { Server } from 'socket.io';
 import { prisma } from '../../config/database';
 import { hashPassword, verifyPassword } from '../../utils/password';
 import { generateRoomCode } from '../../utils/roomCode';
 
 export class RoomsService {
+  private io: Server | null = null;
+
+  setIO(io: Server): void {
+    this.io = io;
+  }
+
+  notifyRoomUpdated(roomId: string, room: unknown): void {
+    if (this.io) {
+      this.io.to(roomId).emit('room_updated', { room });
+    }
+  }
+
+  notifyPlayerJoined(roomId: string, room: unknown): void {
+    if (this.io) {
+      this.io.to(roomId).emit('player_joined', { room });
+      this.io.to(roomId).emit('room_updated', { room });
+    }
+  }
+
+  notifyPlayerLeft(roomId: string, userId: string, room: unknown | null): void {
+    if (this.io) {
+      if (room) {
+        this.io.to(roomId).emit('player_left', { userId, room });
+        this.io.to(roomId).emit('room_updated', { room });
+      } else {
+        this.io.to(roomId).emit('room_closed', {});
+      }
+    }
+  }
+
+  notifyGameStarted(roomId: string, sessionId: string): void {
+    if (this.io) {
+      this.io.to(roomId).emit('game_started', { sessionId, roomId });
+    }
+  }
+
   async createRoom(hostId: string, config: {
     name?: string;
     isPrivate?: boolean;
@@ -62,7 +99,11 @@ export class RoomsService {
 
     // Check if already in room first (for socket reconnection / page transitions)
     const existing = room.players.find(p => p.userId === userId);
-    if (existing) return this.getRoom(room.id);
+    if (existing) {
+      const fullRoom = await this.getRoom(room.id);
+      this.notifyPlayerJoined(room.id, fullRoom);
+      return fullRoom;
+    }
 
     if (room.status !== 'WAITING') throw new Error('Game already started');
     if (room.players.length >= room.maxPlayers) throw new Error('Room is full');
@@ -80,7 +121,9 @@ export class RoomsService {
       data: { roomId: room.id, userId, seat, isReady: false },
     });
     
-    return this.getRoom(room.id);
+    const fullRoom = await this.getRoom(room.id);
+    this.notifyPlayerJoined(room.id, fullRoom);
+    return fullRoom;
   }
   
   async leaveRoom(userId: string, roomId: string) {
@@ -102,6 +145,7 @@ export class RoomsService {
         where: { id: roomId },
         data: { status: 'FINISHED' },
       });
+      this.notifyPlayerLeft(roomId, userId, null);
       return null;
     }
     
@@ -114,7 +158,9 @@ export class RoomsService {
       });
     }
     
-    return this.getRoom(roomId);
+    const updated = await this.getRoom(roomId);
+    this.notifyPlayerLeft(roomId, userId, updated);
+    return updated;
   }
   
   async setReady(userId: string, roomId: string, isReady: boolean) {
@@ -122,7 +168,9 @@ export class RoomsService {
       where: { roomId, userId },
       data: { isReady },
     });
-    return this.getRoom(roomId);
+    const updated = await this.getRoom(roomId);
+    this.notifyRoomUpdated(roomId, updated);
+    return updated;
   }
   
   async getRoom(roomId: string) {
@@ -143,6 +191,7 @@ export class RoomsService {
       include: {
         players: {
           include: { user: { include: { profile: true, stats: true } } },
+          orderBy: { seat: 'asc' },
         },
       },
     });
@@ -202,7 +251,7 @@ export class RoomsService {
   }
   
   private getNextSeat(usedSeats: number[]): number {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 10; i++) {
       if (!usedSeats.includes(i)) return i;
     }
     throw new Error('No seats available');

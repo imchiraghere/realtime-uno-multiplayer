@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { verifyToken } from '../utils/jwt';
 import { logger } from '../utils/logger';
 import { gameService } from '../modules/game/game.service';
+import { roomsService } from '../modules/rooms/rooms.service';
 import { registerRoomHandlers } from './handlers/roomHandler';
 import { registerGameHandlers } from './handlers/gameHandler';
 import { registerChatHandlers } from './handlers/chatHandler';
@@ -9,10 +10,14 @@ import { registerMatchmakingHandlers } from './handlers/matchmakingHandler';
 
 export function initializeSockets(io: Server): void {
   gameService.setIO(io as Parameters<typeof gameService.setIO>[0]);
+  roomsService.setIO(io);
   
   // Authentication middleware
   io.use((socket, next) => {
-    const token = socket.handshake.auth['token'] as string | undefined;
+    const rawAuth = socket.handshake.auth?.['token'] || 
+      (socket.handshake.headers?.['authorization'] as string | undefined)?.replace(/^Bearer\s+/i, '');
+    const token = typeof rawAuth === 'string' ? rawAuth.trim() : undefined;
+    
     if (!token) {
       next(new Error('Authentication required'));
       return;

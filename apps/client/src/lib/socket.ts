@@ -23,10 +23,14 @@ export function initSocket(token: string): Socket {
   currentToken = token;
   socket = io(WS_URL, {
     auth: { token },
+    extraHeaders: {
+      Authorization: `Bearer ${token}`,
+    },
     transports: ['websocket', 'polling'],
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: 20,
     reconnectionDelay: 1000,
+    timeout: 20000,
   });
   
   return socket;

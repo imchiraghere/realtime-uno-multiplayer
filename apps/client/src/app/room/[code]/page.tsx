@@ -109,11 +109,35 @@ export default function WaitingRoomPage() {
     };
   }, [socket, code, router, setCurrentRoom]);
   
-  // Also fetch room via API
+  // Sync room via API and poll regularly as a bulletproof realtime fallback
   useEffect(() => {
     if (!code) return;
-    api.get<GameRoom>(`/api/rooms/${code}`).then(setCurrentRoom).catch(() => {});
-  }, [code, setCurrentRoom]);
+    let isMounted = true;
+
+    const syncRoom = async () => {
+      try {
+        const freshRoom = await api.get<GameRoom>(`/api/rooms/${code}`);
+        if (!isMounted || !freshRoom) return;
+
+        if (freshRoom.status === 'PLAYING') {
+          playTurnStart();
+          router.push(`/game/${freshRoom.id}`);
+        } else {
+          setCurrentRoom(freshRoom);
+        }
+      } catch {
+        // network error / silent retry
+      }
+    };
+
+    syncRoom();
+    const timer = setInterval(syncRoom, 2000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, [code, router, setCurrentRoom, playTurnStart]);
   
   const room = currentRoom;
   const isHost = room?.hostId === user?.id;
@@ -139,23 +163,66 @@ export default function WaitingRoomPage() {
     setTimeout(() => setCopied(false), 2200);
   };
   
-  const handleReady = () => {
+  const handleReady = async () => {
     if (!room) return;
     playClick();
     const newReady = !isReady;
-    socket?.emit('player_ready', { roomId: room.id, isReady: newReady });
+
+    // Optimistic UI update
+    if (room.players) {
+      const updatedPlayers = room.players.map(p =>
+        p.userId === user?.id ? { ...p, isReady: newReady } : p
+      );
+      setCurrentRoom({ ...room, players: updatedPlayers });
+    }
+
+    if (socket && socket.connected) {
+      socket.emit('player_ready', { roomId: room.id, isReady: newReady });
+    }
+
+    try {
+      const res = await api.post<GameRoom>(`/api/rooms/${room.code}/ready`, { isReady: newReady });
+      if (res) setCurrentRoom(res);
+    } catch (err) {
+      console.warn('Ready status fallback notice:', err);
+    }
   };
   
-  const handleStart = () => {
+  const handleStart = async () => {
     if (!room || !canStart) return;
     playClick();
     setStarting(true);
-    socket?.emit('start_game', { roomId: room.id });
+    setError('');
+
+    if (socket && socket.connected) {
+      socket.emit('start_game', { roomId: room.id });
+    }
+
+    try {
+      const res = await api.post<{ success: boolean; data: { room: GameRoom } }>(`/api/rooms/${room.code}/start`);
+      if (res?.data?.room?.id) {
+        playTurnStart();
+        router.push(`/game/${res.data.room.id}`);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Error starting game';
+      setError(message);
+      setStarting(false);
+    }
   };
   
-  const handleLeave = () => {
+  const handleLeave = async () => {
     playClick();
-    if (room) socket?.emit('leave_room', { roomId: room.id });
+    if (room) {
+      if (socket && socket.connected) {
+        socket.emit('leave_room', { roomId: room.id });
+      }
+      try {
+        await api.post(`/api/rooms/${room.code}/leave`);
+      } catch {
+        // ignore
+      }
+    }
     router.push('/lobby');
   };
   

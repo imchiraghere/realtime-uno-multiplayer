@@ -31,7 +31,8 @@ interface HealthResponse {
   services?: {
     server: string;
     database: string;
-    redis: string;
+    store?: string;
+    redis?: string;
   };
 }
 
@@ -452,46 +453,40 @@ export default function StatusPage() {
             </div>
           </div>
 
-          {/* Card 4: Redis Cache */}
+          {/* Card 4: Game Store */}
           <div className="p-5 rounded-2xl bg-neutral-900/60 border border-white/10 backdrop-blur-md">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20">
+                <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
                   <Layers className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm text-white">Redis Cache & Pub/Sub</h3>
-                  <span className="text-[11px] text-neutral-400">ioredis Client</span>
+                  <h3 className="font-bold text-sm text-white">Game State Store</h3>
+                  <span className="text-[11px] text-neutral-400">High-Performance In-Memory Map</span>
                 </div>
               </div>
 
               <span
                 className={clsx(
                   'px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider border flex items-center gap-1.5',
-                  healthData?.services?.redis === 'connected'
+                  httpStatus === 'online'
                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                    : httpStatus === 'offline'
-                    ? 'bg-neutral-500/10 text-neutral-400 border-neutral-500/30'
-                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                    : 'bg-neutral-500/10 text-neutral-400 border-neutral-500/30'
                 )}
               >
                 <span
                   className={clsx(
                     'w-2 h-2 rounded-full',
-                    healthData?.services?.redis === 'connected'
-                      ? 'bg-emerald-400'
-                      : httpStatus === 'offline'
-                      ? 'bg-neutral-500'
-                      : 'bg-amber-400'
+                    httpStatus === 'online' ? 'bg-emerald-400' : 'bg-neutral-500'
                   )}
                 />
-                {healthData?.services?.redis || (httpStatus === 'offline' ? 'unknown' : 'disconnected')}
+                {httpStatus === 'online' ? (healthData?.services?.store || 'Active') : 'Offline'}
               </span>
             </div>
 
             <div className="pt-3 border-t border-white/5 text-xs text-neutral-400 flex items-center justify-between">
               <span>Stores:</span>
-              <span className="text-neutral-300">Live Game State (`game:roomId`), Fast TTL</span>
+              <span className="text-neutral-300">Live Game State (`roomId`), Zero Redis Dependency</span>
             </div>
           </div>
         </div>
